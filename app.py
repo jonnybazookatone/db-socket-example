@@ -33,58 +33,30 @@ elif async_mode == 'gevent':
     from gevent import monkey
     monkey.patch_all()
 
-from datetime import datetime
-from flask import Flask, render_template, session, request
-from flask_socketio import SocketIO, emit, join_room, leave_room, \
-    close_room, rooms, disconnect
-from flask_sqlalchemy import SQLAlchemy
-from models import db, Thingy
-
-app = Flask(__name__)
-app.config['SECRET_KEY'] = 'secret!'
-app.config['SQLALCHEMY_DATABASE_URI'] = 'sqlite:///tmp.db'
-db.init_app(app)
-with app.app_context():
-    db.create_all()
-
-socketio = SocketIO(app, async_mode=async_mode)
+from flask import Flask
+from views import socketio, index, update
+from models import db
 
 
-@db.event.listens_for(Thingy, 'after_insert')
-def after_insert(mapper, connection, target):
-    socketio.emit(
-        'my response',
-        {'data': 'update {}'.format(str(target))},
-        namespace='/test'
-    )
-
-
-@app.route('/')
-def index():
-    return render_template('index.html')
-
-
-@app.route('/update', methods=['GET'])
-def update():
-    thingy = Thingy()
-    db.session.add(thingy)
-    db.session.commit()
-    return 'updated'
-
-
-@socketio.on('connect', namespace='/test')
-def test_connect():
+def create_app():
     """
-    Check when the user connects if there is a new thingy
+    App factory
     """
-    utcnow = datetime.utcnow()
-    all_thingys = db.session.query(Thingy).filter(Thingy.date_last_modified > utcnow).all()
+    app = Flask(__name__)
+    app.config['SQLALCHEMY_DATABASE_URI'] = 'sqlite:///'
 
-    if len(all_thingys) == 0:
-        emit('my response', {'data': 'Connected: nothing new for utcnow: {}'.format(utcnow)})
-    else:
-        emit('my response', {'data': 'Connected: new thingies for utcnow: {}, {}'.format(utcnow, all_thingys)})
+    app.add_url_rule('/', 'index', index)
+    app.add_url_rule('/update', 'update', update)
+
+    db.init_app(app)
+    socketio.init_app(app, async_mode=async_mode)
+
+    return app
 
 
 if __name__ == '__main__':
+
+    app = create_app()
+    with app.app_context():
+        db.create_all()
     socketio.run(app, debug=True)
